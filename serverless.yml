@@ -35,7 +35,7 @@ functions:
     timeout: 600
     reservedConcurrency: 1
     events:
-      - schedule: rate(1 day)
+      - schedule: rate(5 minutes)
 
 plugins:
   - serverless-python-requirements

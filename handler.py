@@ -1,12 +1,10 @@
 import os
 import time
+import json
 import requests
 from datetime import datetime
-import random
-from lxml import html
 import psycopg2
-
-max_per_page = 20
+from bs4 import BeautifulSoup
 
 
 def handler(event, context):
@@ -15,8 +13,8 @@ def handler(event, context):
         current_time = now.strftime("%d/%m/%Y %H:%M:%S")
         print("Started at =", current_time)
 
-        reviews = grab_data('studs-new-york')
-        save2pg(reviews)
+        reviews = scrapper(is_local=False, business_name='studs-new-york')
+        save2pg(is_local=False, reviews=reviews)
 
         now = datetime.now()
         current_time = now.strftime("%d/%m/%Y %H:%M:%S")
@@ -25,104 +23,115 @@ def handler(event, context):
         print(e)
 
 
-def grab_data(name='first-bay-locksmith-santa-clara-3'):
-    reviews_list = []
-    url = 'https://www.yelp.com/biz/' + name
-    random_delay = random.random()
-    time.sleep(random.randint(5, 10) + random_delay)
+def scrapper(is_local=True, business_name='first-bay-locksmith-santa-clara-3'):
+    url = 'https://www.yelp.com/biz/' + business_name
     page = requests.get(url)
-    parser = html.fromstring(page.content)
+    content = BeautifulSoup(page.content, 'html.parser')
+    region = content.find_all("div", {'role': 'navigation'})[0]
+    page_count = int(region.find('span').text.split(' ')[-1])
 
-    str_num_reviews = parser.xpath('//p[@class="lemon--p__373c0__3Qnnj text__373c0__2pB8f '
-                                   'text-color--mid__373c0__3G312 text-align--left__373c0__2pnx_ '
-                                   'text-size--large__373c0__1568g"]//text()')
-    num_reviews = 0
-    if len(str_num_reviews) > 0:
-        num_reviews = int(str_num_reviews[0].replace(" reviews", ""))
-    ipage = 0
-    while num_reviews > 0:
-        random_delay = random.random()
-        time.sleep(random.randint(2, 10) + random_delay)
-        page = requests.get(url + '?start={}'.format(ipage * max_per_page))
-        parser = html.fromstring(page.content)
-        reviews = parser.xpath('//div[@class="lemon--div__373c0__1mboc '
-                               'sidebarActionsHoverTarget__373c0__2kfhE arrange__373c0__UHqhV '
-                               'gutter-12__373c0__3kguh grid__373c0__29zUk '
-                               'layout-stack-small__373c0__3cHex border-color--default__373c0__2oFDT"]')
+    final_reviews = []
+    for page_number in range(page_count):
+        print('page number: {}'.format(page_number))
+
+        time.sleep(5)
+        url = 'https://www.yelp.com/biz/' + business_name + '?start={}'.format(page_number * 20)
+        page = requests.get(url)
+
+        content = BeautifulSoup(page.content, 'html.parser')
+        tmp_reviews_1 = content.find_all("li", {'class': 'u-space-b3'})
+        tmp_reviews_2 = content.find_all("li", {'class': 'u-padding-b3'})
+
+        reviews = []
+        for review in tmp_reviews_1:
+            if review in tmp_reviews_2:
+                reviews.append(review)
 
         for review in reviews:
-            user_img_src = review.xpath('.//img[@class="lemon--img__373c0__3GQUb photo-box-img__373c0__O0tbt"]/@src')[0]
-            user_name = review.xpath('.//div[@class="lemon--div__373c0__1mboc user-passport-info '
-                                     'border-color--default__373c0__2oFDT"]//span/text()')[0]
-            user_addr = review.xpath('.//span[@class="lemon--span__373c0__3997G text__373c0__2pB8f '
-                                     'text-color--normal__373c0__K_MKN text-align--left__373c0__2pnx_ '
-                                     'text-weight--bold__373c0__3HYJa text-size--small__373c0__3SGMi"]/text()')[0]
-            user_friends = review.xpath('.//span[@class="lemon--span__373c0__3997G"]//b/text()')[0]
-            user_reviews_num = review.xpath('.//span[@class="lemon--span__373c0__3997G"]//b/text()')[1]
-            rating = review.xpath('.//div[@class="lemon--div__373c0__1mboc arrange-unit__373c0__1piwO '
-                                  'border-color--default__373c0__2oFDT"]//span//div/'
-                                  '@aria-label')[0].replace(" star rating", "")
-            date = review.xpath('.//div[@class="lemon--div__373c0__1mboc arrange-unit__373c0__1piwO '
-                                'arrange-unit-fill__373c0__17z0h border-color--default__373c0__2oFDT"]//span/text()')[0]
-            comment = review.xpath('.//p[@class="lemon--p__373c0__3Qnnj text__373c0__2pB8f comment__373c0__3EKjH '
-                                   'text-color--normal__373c0__K_MKN text-align--left__373c0__2pnx_"]//span//text()')[0]
+            cleaned_review = {}
+            review_content = review.find_all('div', recursive=False)
+            left_review = review_content[0].find_all('div', recursive=False)[0]
+            cleaned_review['avatar'] = left_review.find_all('img', srcset=True)[0]['src']
+            passport_info = left_review.find_all('div', {'class': 'user-passport-info'})[0]
+            cleaned_review['name'] = passport_info.find_all('span')[0].text
+            cleaned_review['location'] = passport_info.find_all('span')[1].text
+            items = left_review.find_all('div', {'class': 'u-space-r1'})
 
-            review_json = {
-                'AVATAR': user_img_src,
-                'NAME': user_name,
-                'ADDR': user_addr,
-                'FRIENDS': int(user_friends),
-                'REVIEWS': int(user_reviews_num),
-                'RATING': int(rating),
-                'DATE': date,
-                'COMMENT': comment
-            }
-            reviews_list.append(review_json)
+            cleaned_review['friends'] = ''
+            cleaned_review['reviews'] = ''
+            cleaned_review['photos'] = ''
+            for item in items:
+                text = item.find_all('span')[-1].text
+                value = text.split(' ')[0]
+                field = text.split(' ')[1]
 
-        num_reviews -= max_per_page
-        print('++{}+++'.format(ipage))
-        ipage += 1
+                cleaned_review[field] = value
 
-        # Test Mode
-    return reviews_list
+            right_review = review_content[0].find_all('div', recursive=False)[1]
+            star_date = right_review.find_all('div', recursive=False)[0]
+            cleaned_review['star'] = star_date.find_all('div', {'role': 'img'})[0]['aria-label'].split(' ')[0]
+            cleaned_review['date'] = star_date.find_all('span')[-1].text
+
+            cleaned_review['comment'] = right_review.find_all('span', lang=True)[0].text
+            final_reviews.append(cleaned_review)
+
+    return final_reviews
 
 
-def save2pg(reviews):
-    con = psycopg2.connect(
-        host=os.environ['REDSHIFT_HOST'],
-        port=os.environ['REDSHIFT_PORT'],
-        database=os.environ['REDSHIFT_DBNAME'],
-        user=os.environ['REDSHIFT_USERNAME'],
-        password=os.environ['REDSHIFT_PASSWORD']
-    )
+def save2pg(is_local, reviews):
 
-    # Drop Table If Exists...
+    if not is_local:
+        con = psycopg2.connect(
+            host=os.environ['REDSHIFT_HOST'],
+            port=os.environ['REDSHIFT_PORT'],
+            database=os.environ['REDSHIFT_DBNAME'],
+            user=os.environ['REDSHIFT_USERNAME'],
+            password=os.environ['REDSHIFT_PASSWORD']
+        )
+    else:
+        with open('config.json') as json_file:
+            config = json.load(json_file)
+        con = psycopg2.connect(
+            host=config['REDSHIFT_HOST'],
+            port=config['REDSHIFT_PORT'],
+            database=config['REDSHIFT_DBNAME'],
+            user=config['REDSHIFT_USERNAME'],
+            password=config['REDSHIFT_PASSWORD']
+        )
+
     cur = con.cursor()
     cur.execute('''DROP TABLE IF EXISTS yelp_reviews;''')
     con.commit()
 
     cur = con.cursor()
-    cur.execute('''CREATE TABLE IF NOT EXISTS yelp_reviews(
-                    AVATAR        VARCHAR(256)      NOT NULL,
-                    NAME          VARCHAR(256)      NOT NULL,
-                    ADDR          VARCHAR(256)      NOT NULL,
-                    FRIENDS       INT               NOT NULL,
-                    REVIEWS       INT               NOT NULL,
-                    RATING        INT               NOT NULL,
-                    DATE          VARCHAR(20),
-                    COMMENT       VARCHAR(2000)     NOT NULL
-                );
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS yelp_reviews(
+        avatar        VARCHAR(256) NOT NULL,
+        name          VARCHAR(256) NOT NULL,
+        location      VARCHAR(256) NOT NULL,
+        friends       VARCHAR(5),
+        reviews       VARCHAR(5),
+        photos        VARCHAR(5),
+        star          VARCHAR(5),
+        date          VARCHAR(20),
+        comment       VARCHAR(2000) NOT NULL);
         ''')
 
     for review in reviews:
-        cmt = review['COMMENT'].replace("'", "''")
-        cur.execute(
-            """INSERT INTO yelp_reviews (AVATAR, NAME, ADDR, FRIENDS, REVIEWS, RATING, DATE, COMMENT)
-            VALUES ('{0}', '{1}', '{2}', {3}, {4}, {5}, '{6}', '{7}')"""
-            .format(review['AVATAR'], review['NAME'], review['ADDR'], review['FRIENDS'], review['REVIEWS'],
-                    review['RATING'], review['DATE'], cmt));
-
-        con.commit()
+        try:
+            query = """
+                INSERT INTO yelp_reviews (avatar, name, location, friends, reviews, photos, star, date, comment) VALUES
+                ('{AVATAR}', '{NAME}', '{LOCATION}', '{FRIENDS}', '{REVIEWS}', '{PHOTOS}', '{STAR}', '{DATE}', '{COMMENT}');
+                """.format(
+                    AVATAR=review['avatar'], NAME=review['name'], LOCATION=review['location'],
+                    FRIENDS=review['friends'], REVIEWS=review['reviews'], PHOTOS=review['photos'],
+                    STAR=review['star'], DATE=review['date'], COMMENT=review['comment'].replace("'", "''"))
+            if is_local:
+                print(query)
+            cur.execute(query)
+            con.commit()
+        except Exception as e:
+            print(e)
 
     con.commit()
     con.close()
@@ -135,8 +144,8 @@ if __name__ == "__main__":
         current_time = now.strftime("%d/%m/%Y %H:%M:%S")
         print("Current Time =", current_time)
 
-        reviews = grab_data('studs-new-york')
-        save2pg(reviews)
+        reviews = scrapper(is_local=True, business_name='studs-new-york')
+        save2pg(is_local=True, reviews=reviews)
 
         now = datetime.now()
         current_time = now.strftime("%d/%m/%Y %H:%M:%S")
