@@ -1,0 +1,42 @@
+service: SLS-YELP-SCRAPPER
+
+provider:
+  name: aws
+  runtime: python3.6
+  stage: ${opt:stage, 'dev'}
+  region: ${file(./config.json):REGION}
+  environment:
+    REDSHIFT_HOST: ${file(./config.json):REDSHIFT_HOST}
+    REDSHIFT_PORT: ${file(./config.json):REDSHIFT_PORT}
+    REDSHIFT_DBNAME: ${file(./config.json):REDSHIFT_DBNAME}
+    REDSHIFT_USERNAME: ${file(./config.json):REDSHIFT_USERNAME}
+    REDSHIFT_PASSWORD: ${file(./config.json):REDSHIFT_PASSWORD}
+
+# It is not possible to reference files on directory levels above serverless.yml directly when working in AWS Lambda
+# So, we either have to install these additional files as pip packages or `include` them to the package explicitly
+# Included python files would be available parallel to serverless.yml and needs to be imported in this structure
+# For example:
+# fdc_data_dynamodb is present two levels above this serverless.yml, but in common.py it can be imported from cur dir.
+package:
+  include:
+    - psycopg2/**
+  exclude:
+    - node_modules/**
+    - env/**
+    - config.json
+
+
+functions:
+  handler:
+    handler: handler.handler
+    name: ${self:service}-yelp-scrapper
+    description: Daily scraping from yelp business reviews
+    timeout: 600
+    reservedConcurrency: 1
+    events:
+      - schedule: rate(5 minutes)
+
+plugins:
+  - serverless-python-requirements
+  - serverless-pseudo-parameters
+  - serverless-prune-plugin

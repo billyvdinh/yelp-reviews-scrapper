@@ -1,0 +1,15 @@
+{
+  "name": "sls-yelp-scrapper",
+  "version": "1.0.0",
+  "description": "",
+  "dependencies": {
+    "serverless": "^1.61.3"
+  },
+  "devDependencies": {
+    "serverless-prune-plugin": "^1.4.1",
+    "serverless-python-requirements": "^5.0.1",
+    "serverless-pseudo-parameters": "^2.5.0"
+  },
+  "author": "Mateus Badalotti",
+  "license": "ISC"
+}
