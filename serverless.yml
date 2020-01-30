@@ -5,6 +5,7 @@ provider:
   runtime: python3.6
   stage: ${opt:stage, 'dev'}
   region: ${file(./config.json):REGION}
+  profile: default
   environment:
     REDSHIFT_HOST: ${file(./config.json):REDSHIFT_HOST}
     REDSHIFT_PORT: ${file(./config.json):REDSHIFT_PORT}
@@ -34,7 +35,7 @@ functions:
     timeout: 600
     reservedConcurrency: 1
     events:
-      - schedule: rate(5 minutes)
+      - schedule: rate(1 day)
 
 plugins:
   - serverless-python-requirements

@@ -24,3 +24,5 @@ node_modules/
 
 #config
 config.json
+
+__pycache__
