@@ -57,9 +57,6 @@ def scrapper(is_local=True, business_name='first-bay-locksmith-santa-clara-3'):
             cleaned_review['location'] = passport_info.find_all('span')[1].text
             items = left_review.find_all('div', {'class': 'u-space-r1'})
 
-            cleaned_review['friends'] = ''
-            cleaned_review['reviews'] = ''
-            cleaned_review['photos'] = ''
             for item in items:
                 text = item.find_all('span')[-1].text
                 value = text.split(' ')[0]
@@ -69,7 +66,7 @@ def scrapper(is_local=True, business_name='first-bay-locksmith-santa-clara-3'):
 
             right_review = review_content[0].find_all('div', recursive=False)[1]
             star_date = right_review.find_all('div', recursive=False)[0]
-            cleaned_review['star'] = star_date.find_all('div', {'role': 'img'})[0]['aria-label'].split(' ')[0]
+            cleaned_review['stars'] = star_date.find_all('div', {'role': 'img'})[0]['aria-label'].split(' ')[0]
             cleaned_review['date'] = star_date.find_all('span')[-1].text
 
             cleaned_review['comment'] = right_review.find_all('span', lang=True)[0].text
@@ -109,23 +106,44 @@ def save2pg(is_local, reviews):
         avatar        VARCHAR(256) NOT NULL,
         name          VARCHAR(256) NOT NULL,
         location      VARCHAR(256) NOT NULL,
-        friends       VARCHAR(5),
-        reviews       VARCHAR(5),
-        photos        VARCHAR(5),
-        star          VARCHAR(5),
+        friends       INT,
+        reviews       INT,
+        photos        INT,
+        stars          INT,
         date          VARCHAR(20),
         comment       VARCHAR(2000) NOT NULL);
         ''')
 
     for review in reviews:
         try:
+            if 'friend' in review:
+                friend_count = review['friend']
+            elif 'friends' in review:
+                friend_count = review['friends']
+            else:
+                friend_count = 0
+
+            if 'review' in review:
+                review_count = review['review']
+            elif 'reviews' in review:
+                review_count = review['reviews']
+            else:
+                review_count = 0
+
+            if 'photo' in review:
+                photo_count = review['photo']
+            elif 'photos' in review:
+                photo_count = review['photos']
+            else:
+                photo_count = 0
+
             query = """
-                INSERT INTO yelp_reviews (avatar, name, location, friends, reviews, photos, star, date, comment) VALUES
-                ('{AVATAR}', '{NAME}', '{LOCATION}', '{FRIENDS}', '{REVIEWS}', '{PHOTOS}', '{STAR}', '{DATE}', '{COMMENT}');
+                INSERT INTO yelp_reviews (avatar, name, location, friends, reviews, photos, stars, date, comment) VALUES
+                ('{AVATAR}', '{NAME}', '{LOCATION}', '{FRIENDS}', '{REVIEWS}', '{PHOTOS}', '{STARS}', '{DATE}', '{COMMENT}');
                 """.format(
                     AVATAR=review['avatar'], NAME=review['name'], LOCATION=review['location'],
-                    FRIENDS=review['friends'], REVIEWS=review['reviews'], PHOTOS=review['photos'],
-                    STAR=review['star'], DATE=review['date'], COMMENT=review['comment'].replace("'", "''"))
+                    FRIENDS=friend_count, REVIEWS=review_count, PHOTOS=photo_count,
+                    STARS=review['stars'], DATE=review['date'], COMMENT=review['comment'].replace("'", "''"))
             if is_local:
                 print(query)
             cur.execute(query)
